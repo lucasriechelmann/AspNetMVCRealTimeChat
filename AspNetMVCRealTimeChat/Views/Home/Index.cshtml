@@ -1,0 +1,213 @@
+﻿@{
+    ViewData["Title"] = "Real Time Chat";
+}
+
+
+
+<h1>WebSocket Real Time Chat Application</h1>
+<p id="stateLabel">Ready to connect...</p>
+<div class="row">
+    <div class="col-lg-4 mb-2">
+        <label for="txtConnectionUrl" class="form-label">WebSocket Server URL:</label>
+        <input id="txtConnectionUrl" class="form-control"/>
+    </div>
+    <div class="col-lg-4 mb-2">
+        <label for="txtName" class="form-label fw-bold">Name:</label>
+        <input id="txtName" class="form-control"/>
+    </div>
+    <div class="col-lg-1 mb-2 d-flex align-items-end">
+        <button id="btnConnect" type="submit" class="btn btn-primary">Connect</button>
+    </div>
+    <div class="col-lg-2 mb-2 d-flex align-items-end">
+        <button id="btnDisconnect" disabled class="btn btn-danger">Close Socket</button>
+    </div>
+</div>
+<div class="card mt-2">
+    <div class="card-header bg-primary">
+        <h5 class="card-title text-white">Chat</h5>
+    </div>
+    <div class="card-body row" id="messageChat">
+        <!--
+        <div class="col-lg-7 mb-2 border p-2">
+            <span class="fw-bold"> Oleksandra says:</span> Hello
+        </div>
+        <div class="col-lg-7 offset-lg-5 mb-2 border p-2">
+            <span class="fw-bold">Lucas says:</span> Hello
+        </div>
+        -->
+    </div>
+</div>
+<div class="row">
+    
+    <div class="col-11 mb-2">
+        <label for="txtMessage" class="form-label fw-bold">Message to send:</label>
+        <input id="txtMessage" disabled class="form-control"/>
+    </div>
+    <div class="col-1 mb-2 d-flex align-items-end">
+        <button id="btnSend" type="submit" disabled class="btn btn-primary">Send</button>
+    </div>        
+</div>
+<div class="modal" tabindex="-1" id="modal">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-primary">
+        <h5 class="modal-title text-white">Alert</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="modalMessage">Modal body text goes here.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>        
+      </div>
+    </div>
+  </div>
+</div>
+@section Scripts
+{
+    <script>
+        let txtConnectionUrl = document.getElementById("txtConnectionUrl")
+        let txtName = document.getElementById('txtName')
+        let btnConnect = document.getElementById("btnConnect")
+        let stateLabel = document.getElementById("stateLabel")
+        let txtMessage = document.getElementById("txtMessage")
+        let btnSend = document.getElementById("btnSend")
+        let commsLog = document.getElementById("commsLog")
+        let btnDisconnect = document.getElementById("btnDisconnect")
+        let socket
+
+        let scheme = document.location.protocol === "https:" ? "wss" : "ws"
+        let port = document.location.port ? (":" + document.location.port) : ""
+
+        txtConnectionUrl.value = scheme + "://" + document.location.hostname + port + "/ws" 
+
+        function updateState() {
+            function disable() {
+                txtMessage.disabled = true
+                btnSend.disabled = true
+                btnDisconnect.disabled = true
+            }
+            function enable() {
+                txtMessage.disabled = false
+                btnSend.disabled = false
+                btnDisconnect.disabled = false
+            }
+
+            txtConnectionUrl.disabled = true
+            btnConnect.disabled = true
+
+            if (!socket) {
+                disable();
+            } else {
+                switch (socket.readyState) {
+                    case WebSocket.CLOSED:
+                        stateLabel.innerHTML = "Closed"
+                        disable()
+                        txtConnectionUrl.disabled = false
+                        txtName.disabled = false
+                        btnConnect.disabled = false
+                        break;
+                    case WebSocket.CLOSING:
+                        stateLabel.innerHTML = "Closing..."
+                        disable()
+                        break;
+                    case WebSocket.CONNECTING:
+                        stateLabel.innerHTML = "Connecting..."
+                        disable()
+                        break;
+                    case WebSocket.OPEN:
+                        stateLabel.innerHTML = "Open"
+                        enable()
+                        break;
+                    default:
+                        stateLabel.innerHTML = "Unknown WebSocket State: " + htmlEscape(socket.readyState)
+                        disable()
+                        break;
+                }
+            }
+        }
+
+        btnDisconnect.onclick = function () {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                messageAlert("socket not connected")
+            }
+            let data = { name: txtName.value, message: 'Left the chat.'}
+            socket.send(JSON.stringify(data))
+            socket.close(1000, "Closing from client")
+        }
+
+        btnSend.onclick = function () {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                messageAlert("socket not connected")
+            }
+            let data = {
+                name: txtName.value,
+                message: txtMessage.value
+            };
+            
+            socket.send(JSON.stringify(data));
+            publishOnChat(data)
+        }
+
+        btnConnect.onclick = function() {
+            stateLabel.innerHTML = "Connecting";
+            socket = new WebSocket(txtConnectionUrl.value);
+            socket.onopen = function (event) {                
+                updateState();
+
+                let data = { name: txtName.value, message: 'Joined the chat.'}
+                socket.send(JSON.stringify(data))                
+            };
+            socket.onclose = function (event) {                
+                updateState();                
+            }
+            socket.onerror = updateState;
+            socket.onmessage = function (event) {                
+                let data = JSON.parse(event.data)
+                publishOnChat(data, true)
+            }
+        }
+
+        function htmlEscape(str) {
+            return str.toString()
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        function publishOnChat(message, server = false) {
+            console.log([JSON.stringify(message), server])
+            let messageChat = document.getElementById('messageChat')
+
+            let div = document.createElement('div')
+            div.classList.add('col-lg-7')
+            div.classList.add('p-2')
+            div.classList.add('border')
+            div.classList.add('mb-2')
+
+            if(!server)
+                div.classList.add('offset-lg-5')
+
+            let spanUser = document.createElement('span')
+            spanUser.classList.add('fw-bold')
+            spanUser.classList.add('me-2')
+            spanUser.innerHTML = `${message.name} says:`
+
+            let spanMessage = document.createElement('span')
+            spanMessage.innerHTML = message.message
+
+            div.appendChild(spanUser)
+            div.appendChild(spanMessage)
+            messageChat.appendChild(div)
+        }
+
+        function messageAlert(message) {
+            let modal = new bootstrap.Modal(document.getElementById('modal'))
+            let modalMessage = document.getElementById('modalMessage')
+            modalMessage.innerHTML = message
+            modal.show()
+        }
+    </script>
+}
